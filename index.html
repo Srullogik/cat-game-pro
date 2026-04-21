@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>מבצע חתול - הגרסה המותאמת</title>
+    <style>
+        :root {
+            --bg: #f0f4f8;
+            --cell-empty: #cbd5e0;
+            --cell-blocked: #2d3748;
+            --cat-bg: #ed8936;
+            --accent: #4299e1;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            user-select: none;
+        }
+
+        .header { text-align: center; margin-bottom: 15px; }
+        h1 { color: #1a365d; margin: 0; font-size: 2.2rem; }
+
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 25px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .control-group { display: flex; align-items: center; gap: 8px; }
+        
+        input[type="number"], select {
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            width: 60px;
+        }
+
+        button {
+            padding: 10px 25px;
+            border-radius: 8px;
+            border: none;
+            background: var(--accent);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover { background: #3182ce; transform: scale(1.02); }
+
+        #board {
+            display: inline-block;
+            background: rgba(255,255,255,0.5);
+            padding: 20px;
+            border-radius: 20px;
+            max-width: 100vw;
+            overflow: auto;
+        }
+
+        .row {
+            display: flex;
+            margin-bottom: 2px;
+        }
+
+        /* הזזת כל שורה שנייה ליצירת אפקט כוורת/א-סימטריה */
+        .row:nth-child(even) {
+            margin-right: 25px;
+            margin-left: -25px;
+        }
+
+        .cell {
+            width: 45px;
+            height: 45px;
+            background-color: var(--cell-empty);
+            border-radius: 50%;
+            margin: 2px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        /* התאמה למסכים קטנים */
+        @media (max-width: 500px) {
+            .cell { width: 35px; height: 35px; }
+            .row:nth-child(even) { margin-right: 18px; margin-left: -18px; }
+        }
+
+        .cell.blocked {
+            background-color: var(--cell-blocked);
+            cursor: default;
+            transform: scale(0.95);
+        }
+
+        .cell.cat {
+            background-color: #fbd38d;
+            background-image: url('https://cdn-icons-png.flaticon.com/512/6988/6988831.png');
+            background-size: 80%;
+            background-position: center;
+            background-repeat: no-repeat;
+            box-shadow: 0 0 10px rgba(237, 137, 54, 0.6);
+            z-index: 5;
+            transform: scale(1.1);
+        }
+
+        .cell:hover:not(.blocked):not(.cat) {
+            background-color: #a0aec0;
+        }
+
+        /* מודאל סיום */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            max-width: 400px;
+            animation: pop 0.4s ease-out;
+        }
+
+        @keyframes pop {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal.win h2 { color: #38a169; }
+        .modal.lose h2 { color: #e53e3e; }
+        .modal button { margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🐾 מבצע חתול</h1>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>שורות:</label>
+            <input type="number" id="rows" value="11" min="5" max="15">
+        </div>
+        <div class="control-group">
+            <label>עמודות:</label>
+            <input type="number" id="cols" value="11" min="5" max="15">
+        </div>
+        <div class="control-group">
+            <label>קושי:</label>
+            <select id="difficulty">
+                <option value="easy">קל</option>
+                <option value="medium" selected>בינוני</option>
+                <option value="hard">קשה</option>
+            </select>
+        </div>
+        <button onclick="initGame()">משחק חדש</button>
+    </div>
+
+    <div id="board"></div>
+
+    <div id="modalOverlay" class="modal-overlay">
+        <div id="modal" class="modal">
+            <h2 id="mTitle"></h2>
+            <p id="mText"></p>
+            <button onclick="initGame()">נסה שוב</button>
+        </div>
+    </div>
+
+    <script>
+        let rows, cols;
+        let grid = [];
+        let catPos = { r: 0, c: 0 };
+        let gameOver = false;
+
+        function initGame() {
+            rows = parseInt(document.getElementById('rows').value);
+            cols = parseInt(document.getElementById('cols').value);
+            const difficulty = document.getElementById('difficulty').value;
+            
+            const board = document.getElementById('board');
+            const overlay = document.getElementById('modalOverlay');
+            board.innerHTML = '';
+            overlay.style.display = 'none';
+            gameOver = false;
+            grid = [];
+
+            // יצירת הלוח
+            for (let r = 0; r < rows; r++) {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'row';
+                grid[r] = [];
+                for (let c = 0; c < cols; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.onclick = () => handleCellClick(r, c);
+                    rowDiv.appendChild(cell);
+                    grid[r][c] = { blocked: false, el: cell };
+                }
+                board.appendChild(rowDiv);
+            }
+
+            // מיקום התחלתי של החתול (באמצע)
+            catPos = { r: Math.floor(rows/2), c: Math.floor(cols/2) };
+            
+            // הגדרת כמות חסימות לפי קושי
+            let blockPercent;
+            if(difficulty === 'easy') blockPercent = 0.15;
+            else if(difficulty === 'medium') blockPercent = 0.10;
+            else blockPercent = 0.05;
+
+            let blocksToPlace = Math.floor((rows * cols) * blockPercent);
+            
+            while(blocksToPlace > 0) {
+                let r = Math.floor(Math.random() * rows);
+                let c = Math.floor(Math.random() * cols);
+                if((r !== catPos.r || c !== catPos.c) && !grid[r][c].blocked) {
+                    grid[r][c].blocked = true;
+                    grid[r][c].el.classList.add('blocked');
+                    blocksToPlace--;
+                }
+            }
+
+            updateUI();
+        }
+
+        function getNeighbors(r, c) {
+            const n = [];
+            // לוגיקת שכנים עבור לוח שבו כל שורה שנייה מוזזת (Hex-like)
+            const directions = (r % 2 === 0)
+                ? [[0,-1], [0,1], [-1,-1], [-1,0], [1,-1], [1,0]]
+                : [[0,-1], [0,1], [-1,0], [-1,1], [1,0], [1,1]];
+
+            for (let [dr, dc] of directions) {
+                let nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                    n.push({ r: nr, c: nc });
+                }
+            }
+            return n;
+        }
+
+        function handleCellClick(r, c) {
+            if (gameOver || grid[r][c].blocked || (r === catPos.r && c === catPos.c)) return;
+
+            grid[r][c].blocked = true;
+            grid[r][c].el.classList.add('blocked');
+
+            moveCat();
+        }
+
+        function moveCat() {
+            const path = findShortestPath();
+
+            if (path) {
+                catPos = path[0];
+            } else {
+                // חתול לכוד - ינסה לנוע בשטח הפתוח
+                const neighbors = getNeighbors(catPos.r, catPos.c);
+                const available = neighbors.filter(nb => !grid[nb.r][nb.c].blocked);
+                if (available.length > 0) {
+                    catPos = available[Math.floor(Math.random() * available.length)];
+                } else {
+                    endGame(true);
+                    return;
+                }
+            }
+
+            updateUI();
+
+            if (isAtEdge(catPos.r, catPos.c)) {
+                endGame(false);
+            }
+        }
+
+        function findShortestPath() {
+            const queue = [[catPos]];
+            const visited = new Set([`${catPos.r},${catPos.c}`]);
+
+            while (queue.length > 0) {
+                const path = queue.shift();
+                const curr = path[path.length - 1];
+
+                if (isAtEdge(curr.r, curr.c)) {
+                    return path.length > 1 ? path.slice(1) : null;
+                }
+
+                for (let nb of getNeighbors(curr.r, curr.c)) {
+                    const key = `${nb.r},${nb.c}`;
+                    if (!grid[nb.r][nb.c].blocked && !visited.has(key)) {
+                        visited.add(key);
+                        queue.push([...path, nb]);
+                    }
+                }
+            }
+            return null;
+        }
+
+        function isAtEdge(r, c) {
+            return r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
+        }
+
+        function updateUI() {
+            document.querySelectorAll('.cell.cat').forEach(el => el.classList.remove('cat'));
+            grid[catPos.r][catPos.c].el.classList.add('cat');
+        }
+
+        function endGame(win) {
+            gameOver = true;
+            const overlay = document.getElementById('modalOverlay');
+            const modal = document.getElementById('modal');
+            modal.className = 'modal ' + (win ? 'win' : 'lose');
+            document.getElementById('mTitle').innerText = win ? 'ניצחת! 🏆' : 'הפסדת... 😿';
+            document.getElementById('mText').innerText = win 
+                ? 'החתול נלכד ואין לו לאן ללכת!' 
+                : 'החתול הצליח לברוח מהלוח.';
+            overlay.style.display = 'flex';
+        }
+
+        // התחלה ראשונית
+        initGame();
+    </script>
+</body>
+</html>
